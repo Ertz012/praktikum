@@ -1,14 +1,29 @@
 import socket
 import struct
-sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-sock.bind(('0.0.0.0', 9999))
-sock_send = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+
+sock = socket.socket(socket.AF_INET, socket.SOCK_RAW, socket.IPPROTO_UDP)
+sock_send = socket.socket(socket.AF_INET, socket.SOCK_RAW, socket.IPPROTO_RAW)
+sock_send.setsockopt(socket.IPPROTO_IP, socket.IP_HDRINCL, 1)
 sock_send.bind(("192.168.1.48", 0))
-port=int("9999")
+
+port = 9999
+
 while True:
-    data, adress=sock.recvfrom(1024)
-    checksum, length, ip_encoded = struct.unpack("!HH4s", data[0:8])
-    ip_receiver = socket.inet_ntoa(ip_encoded)
-    print("sending to" + ip_receiver)
-    sock_send.sendto(data,(ip_receiver,port))
-    print("sent to " + ip_receiver + " via wlan0")
+    data, addr = sock.recvfrom(65535)
+    udp_dst_port = struct.unpack("!H", data[22:24])[0]
+    if udp_dst_port != 9999:
+        continue
+
+    final_dst_ip = socket.inet_ntoa(data[28:32])
+    print("sending to " + final_dst_ip)
+
+    udp_payload = data[28:]
+    src_ip = socket.inet_aton("192.168.1.48")
+    dst_ip = socket.inet_aton(final_dst_ip)
+    length = len(udp_payload)
+    udp_header = struct.pack("!HHHH", 1234, port, 8 + length, 0)
+    ip_header = struct.pack("!BBHHHBBH4s4s", 69, 0, 20 + 8 + length, 0, 0, 64, 17, 0, src_ip, dst_ip)
+
+    new_packet = ip_header + udp_header + udp_payload
+    sock_send.sendto(new_packet, (final_dst_ip, port))
+    print("sent to " + final_dst_ip + " via wlan0")
