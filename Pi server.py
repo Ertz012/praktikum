@@ -1,5 +1,7 @@
 import socket
 import struct
+import requests
+import time
 
 sock = socket.socket(socket.AF_INET, socket.SOCK_RAW, socket.IPPROTO_UDP)
 sock_send = socket.socket(socket.AF_INET, socket.SOCK_RAW, socket.IPPROTO_RAW)
@@ -11,6 +13,7 @@ port = 9999
 while True:
     data, addr = sock.recvfrom(65535)
     udp_dst_port = struct.unpack("!H", data[22:24])[0]
+    print("port:", udp_dst_port)
     if udp_dst_port != 9999:
         continue
 
@@ -27,3 +30,16 @@ while True:
     new_packet = ip_header + udp_header + udp_payload
     sock_send.sendto(new_packet, (final_dst_ip, port))
     print("sent to " + final_dst_ip + " via wlan0")
+    time.sleep(1)
+    try:
+        requests.post("http://192.168.1.49:5000/event", json={
+            "stage": "routed",
+            "final_dst": final_dst_ip,
+            "src_ip": "192.168.1.101",
+            "src_port": 1234,
+            "dst_port": 9999,
+            "checksum": int.from_bytes(data[10:12], 'big'),
+            "message": udp_payload[4:].decode("utf-8", errors="ignore")
+        }, timeout=1)
+    except:
+        pass

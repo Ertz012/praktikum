@@ -1,0 +1,355 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<title>PraktikumPi – Packet Visualizer</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.2/socket.io.min.js"></script>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Inter:wght@300;500;700&display=swap');
+
+  :root {
+    --bg: #0a0e1a;
+    --panel: #111827;
+    --border: #1e2d45;
+    --pi1: #00d4ff;
+    --pi2: #ff6b35;
+    --pi3: #00ff88;
+    --text: #c9d5e0;
+    --dim: #4a5568;
+    --mono: 'Share Tech Mono', monospace;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Inter', sans-serif;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 32px 16px;
+  }
+
+  h1 {
+    font-family: var(--mono);
+    font-size: 1.1rem;
+    letter-spacing: 0.15em;
+    color: var(--dim);
+    margin-bottom: 40px;
+    text-transform: uppercase;
+  }
+
+  h1 span { color: var(--pi2); }
+
+  .network {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0;
+    width: 100%;
+    max-width: 860px;
+    margin-bottom: 48px;
+    position: relative;
+  }
+
+  .node {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 12px;
+    z-index: 2;
+  }
+
+  .node-icon {
+    width: 80px;
+    height: 80px;
+    border-radius: 16px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 2rem;
+    border: 2px solid;
+    position: relative;
+    transition: box-shadow 0.3s;
+  }
+
+  .node-icon.pi1 { border-color: var(--pi1); background: rgba(0,212,255,0.07); }
+  .node-icon.pi2 { border-color: var(--pi2); background: rgba(255,107,53,0.07); }
+  .node-icon.pi3 { border-color: var(--pi3); background: rgba(0,255,136,0.07); }
+
+  .node-icon.active-pi1 { box-shadow: 0 0 24px var(--pi1); }
+  .node-icon.active-pi2 { box-shadow: 0 0 24px var(--pi2); }
+  .node-icon.active-pi3 { box-shadow: 0 0 24px var(--pi3); }
+
+  .node-label {
+    font-family: var(--mono);
+    font-size: 0.75rem;
+    letter-spacing: 0.1em;
+    text-align: center;
+    line-height: 1.6;
+  }
+
+  .node-label .name { font-size: 0.9rem; font-weight: 500; }
+  .node-label .ip   { color: var(--dim); font-size: 0.7rem; }
+  .node-label .role { font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.12em; }
+
+  .wire {
+    flex: 1;
+    height: 2px;
+    background: var(--border);
+    position: relative;
+    overflow: visible;
+  }
+
+  .packet-dot {
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    position: absolute;
+    top: 50%;
+    transform: translateY(-50%);
+    opacity: 0;
+    pointer-events: none;
+  }
+
+  .packet-dot.seg1 { background: var(--pi1); box-shadow: 0 0 10px var(--pi1); }
+  .packet-dot.seg2 { background: var(--pi2); box-shadow: 0 0 10px var(--pi2); }
+
+  @keyframes fly {
+    0%   { left: 0%;   opacity: 1; }
+    100% { left: 100%; opacity: 1; }
+  }
+
+  .flying { animation: fly 2s cubic-bezier(0.4, 0, 0.2, 1) forwards; }
+
+  .panels {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    width: 100%;
+    max-width: 860px;
+    margin-bottom: 24px;
+  }
+
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 20px;
+  }
+
+  .panel-title {
+    font-family: var(--mono);
+    font-size: 0.7rem;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    color: var(--dim);
+    margin-bottom: 14px;
+  }
+
+  .field { display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 0.82rem; }
+  .field-key { color: var(--dim); font-family: var(--mono); }
+  .field-val { font-family: var(--mono); color: var(--text); }
+  .field-val.highlight { color: var(--pi2); }
+
+  .log-panel {
+    width: 100%;
+    max-width: 860px;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 20px;
+  }
+
+  .log-title {
+    font-family: var(--mono);
+    font-size: 0.7rem;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    color: var(--dim);
+    margin-bottom: 14px;
+  }
+
+  #log {
+    font-family: var(--mono);
+    font-size: 0.78rem;
+    line-height: 1.8;
+    max-height: 200px;
+    overflow-y: auto;
+  }
+
+  .log-entry { display: flex; gap: 12px; }
+  .log-time  { color: var(--dim); flex-shrink: 0; }
+  .log-msg.c1 { color: var(--pi1); }
+  .log-msg.c2 { color: var(--pi2); }
+  .log-msg.c3 { color: var(--pi3); }
+
+  .status-dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: var(--pi3);
+    display: inline-block;
+    margin-right: 6px;
+    animation: pulse 2s infinite;
+  }
+
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.3; }
+  }
+</style>
+</head>
+<body>
+
+<h1>Praktikum<span>Pi</span> — Netzwerk Visualizer</h1>
+
+<div class="network">
+  <div class="node">
+    <div class="node-icon pi1" id="icon-pi1">🖥️</div>
+    <div class="node-label">
+      <div class="name">Pi1</div>
+      <div class="ip">192.168.1.101</div>
+      <div class="role" style="color:var(--pi1)">Sender</div>
+    </div>
+  </div>
+
+  <div class="wire" id="wire1">
+    <div class="packet-dot seg1" id="dot1"></div>
+  </div>
+
+  <div class="node">
+    <div class="node-icon pi2" id="icon-pi2">🔀</div>
+    <div class="node-label">
+      <div class="name">Pi2</div>
+      <div class="ip">192.168.1.102</div>
+      <div class="role" style="color:var(--pi2)">Router</div>
+    </div>
+  </div>
+
+  <div class="wire" id="wire2">
+    <div class="packet-dot seg2" id="dot2"></div>
+  </div>
+
+  <div class="node">
+    <div class="node-icon pi3" id="icon-pi3">📥</div>
+    <div class="node-label">
+      <div class="name">Pi3</div>
+      <div class="ip">192.168.1.86</div>
+      <div class="role" style="color:var(--pi3)">Empfänger</div>
+    </div>
+  </div>
+</div>
+
+<div class="panels">
+  <div class="panel">
+    <div class="panel-title">IP Header</div>
+    <div class="field"><span class="field-key">src_ip</span>    <span class="field-val" id="f-src">—</span></div>
+    <div class="field"><span class="field-key">dst_ip</span>    <span class="field-val highlight" id="f-dst">—</span></div>
+    <div class="field"><span class="field-key">ttl</span>       <span class="field-val" id="f-ttl">—</span></div>
+    <div class="field"><span class="field-key">protocol</span>  <span class="field-val" id="f-proto">—</span></div>
+  </div>
+  <div class="panel">
+    <div class="panel-title">UDP + Payload</div>
+    <div class="field"><span class="field-key">src_port</span>  <span class="field-val" id="f-sport">—</span></div>
+    <div class="field"><span class="field-key">dst_port</span>  <span class="field-val" id="f-dport">—</span></div>
+    <div class="field"><span class="field-key">checksum</span>  <span class="field-val" id="f-chk">—</span></div>
+    <div class="field"><span class="field-key">nachricht</span> <span class="field-val highlight" id="f-msg">—</span></div>
+  </div>
+</div>
+
+<div class="log-panel">
+  <div class="log-title"><span class="status-dot"></span>Live Log</div>
+  <div id="log"></div>
+</div>
+
+<script>
+const socket = io();
+const ANIM_MS = 2000;
+const queue = [];
+let busy = false;
+
+function now() {
+  return new Date().toLocaleTimeString('de-DE');
+}
+
+function addLog(msg, cls) {
+  const log = document.getElementById('log');
+  const entry = document.createElement('div');
+  entry.className = 'log-entry';
+  entry.innerHTML = `<span class="log-time">${now()}</span><span class="log-msg ${cls}">${msg}</span>`;
+  log.prepend(entry);
+  if (log.children.length > 30) log.lastChild.remove();
+}
+
+function glow(id, cls) {
+  const el = document.getElementById(id);
+  el.classList.add(cls);
+  setTimeout(() => el.classList.remove(cls), ANIM_MS);
+}
+
+function fly(dotId, cb) {
+  const dot = document.getElementById(dotId);
+  dot.classList.remove('flying');
+  void dot.offsetWidth;
+  dot.classList.add('flying');
+  setTimeout(() => {
+    dot.classList.remove('flying');
+    if (cb) cb();
+  }, ANIM_MS);
+}
+
+function updateFields(data) {
+  if (data.src_ip)   document.getElementById('f-src').textContent   = data.src_ip;
+  if (data.final_dst || data.dst_ip) document.getElementById('f-dst').textContent = data.final_dst || data.dst_ip;
+  if (data.ttl)      document.getElementById('f-ttl').textContent   = data.ttl;
+  document.getElementById('f-proto').textContent = 'UDP (17)';
+  if (data.src_port) document.getElementById('f-sport').textContent = data.src_port;
+  if (data.dst_port) document.getElementById('f-dport').textContent = data.dst_port;
+  if (data.checksum) document.getElementById('f-chk').textContent   = data.checksum;
+  if (data.message)  document.getElementById('f-msg').textContent   = data.message;
+}
+
+function processQueue() {
+  if (busy || queue.length === 0) return;
+  busy = true;
+  const data = queue.shift();
+  updateFields(data);
+
+  if (data.stage === 'sent') {
+    addLog(`Pi1 sendet: "${data.message}" → Router`, 'c1');
+    glow('icon-pi1', 'active-pi1');
+    fly('dot1', () => {
+      glow('icon-pi2', 'active-pi2');
+      busy = false;
+      processQueue();
+    });
+  } else if (data.stage === 'routed') {
+    addLog(`Pi2 leitet weiter → ${data.final_dst}`, 'c2');
+    glow('icon-pi2', 'active-pi2');
+    fly('dot2', () => {
+      glow('icon-pi3', 'active-pi3');
+      busy = false;
+      processQueue();
+    });
+  } else if (data.stage === 'received') {
+    addLog(`Pi3 empfangen: "${data.message}"`, 'c3');
+    glow('icon-pi3', 'active-pi3');
+    busy = false;
+    processQueue();
+  } else {
+    busy = false;
+    processQueue();
+  }
+}
+
+socket.on('packet_event', (data) => {
+  queue.push(data);
+  processQueue();
+});
+
+addLog('Verbunden. Warte auf Pakete...', 'c2');
+</script>
+</body>
+</html>

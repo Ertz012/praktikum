@@ -1,5 +1,6 @@
 import socket
 import struct
+import requests
 
 sock = socket.socket(socket.AF_INET, socket.SOCK_RAW, socket.IPPROTO_RAW)
 sock.setsockopt(socket.IPPROTO_IP, socket.IP_HDRINCL, 1)
@@ -32,5 +33,12 @@ packet = ip_header + udp_header + payload
 try:
     sock.sendto(packet, (router_ip, dst_port))
     print("Gesendet!")
+    try:
+        requests.post("http://192.168.1.49:5000/event", json={
+            "stage": "sent",
+            "final_dst": ip_receiver
+        }, timeout=1)
+    except:
+        pass
 except Exception as e:
     print("Fehler:", e)
